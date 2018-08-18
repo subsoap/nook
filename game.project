@@ -1,0 +1,15 @@
+[bootstrap]
+main_collection = /main/main.collectionc
+
+[script]
+shared_state = 1
+
+[display]
+width = 960
+height = 640
+variable_dt = 1
+
+[project]
+title = Nook
+dependencies = https://github.com/britzl/defnet/archive/master.zip,https://github.com/britzl/defold-luasocket/archive/0.11.zip
+

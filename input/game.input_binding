@@ -1,0 +1,12 @@
+key_trigger {
+  input: KEY_1
+  action: "key_1"
+}
+key_trigger {
+  input: KEY_2
+  action: "key_2"
+}
+mouse_trigger {
+  input: MOUSE_BUTTON_1
+  action: "touch"
+}

@@ -1,0 +1,180 @@
+local p2p_discovery = require("defnet.p2p_discovery")
+local DISCOVERY_PORT = 50000
+local UDP_SERVER_PORT = 4000
+local UDP_CLIENT_PORT = 4001
+local udp = require("defnet.udp")
+
+local MAX_PINGS = 4
+local PING_TIMER = 2
+
+local trickle = require("utils.trickle")
+
+local status = "Status: \n"
+
+local sig_message = 
+{
+	{"name", "string"},
+	{"data", "string"}
+}
+
+local sig_ping = 
+{
+	{"ping", "string"},
+	{"time", "float"}
+}
+
+local function update_status(text)
+	if text then print(text) end
+	text = text or ""
+	status = status .. text .. "\n"
+	gui.set_text(gui.get_node("status"), status)
+end
+
+local function listen_for_clients(self)
+	update_status("Listening for clients..")
+	
+	self.p2p = p2p_discovery.create(DISCOVERY_PORT)
+	self.p2p.broadcast("findme")
+end
+
+local function create_udp_server(self)
+	update_status("Creating UDP server on " .. UDP_SERVER_PORT)
+	gui.set_text(gui.get_node("ping"), "Hosting server on " .. UDP_SERVER_PORT)
+	self.udp_server = udp.create(function(data, ip, port)
+		local stream_message = trickle.create(data)
+		local message = stream_message:unpack(sig_message)
+		if message.name == "ping" then
+			local stream_data = trickle.create(message.data)			
+			local data = stream_data:unpack(sig_ping)
+			
+			if data.ping == "ping" then
+				local stream_message = trickle.create()
+				local message = 
+				{
+					name = "ping",
+					data = nil
+				}
+
+				local stream_data = trickle.create()
+				local data = 
+				{
+					ping = "pong",
+					time = data.time
+				}
+
+				stream_data:pack(data, sig_ping)
+				message.data = tostring(stream_data)
+				stream_message:pack(message, sig_message)
+				
+				self.udp_server.send(tostring(stream_message), ip, port)
+			else
+				update_status("Server received data " .. data .. " " .. ip .. " " .. port)
+			end
+		end
+	end, UDP_SERVER_PORT)
+	
+end
+
+local function create_udp_client(self, server_ip, server_port)
+	self.pings = 0
+	self.ping_timer = PING_TIMER
+	self.udp = udp.create(function(data, ip, port)
+		local stream_message = trickle.create(data)
+		local message = stream_message:unpack(sig_message)
+		if message.name == "ping" then
+			local stream_data = trickle.create(message.data)			
+			local data = stream_data:unpack(sig_ping)
+			if data.ping == "pong" then
+				self.pings = 0
+				self.ping = socket.gettime() - data.time
+				gui.set_text(gui.get_node("ping"), "Ping: " .. math.floor(self.ping * 1000) .. "ms")
+			else
+				update_status("Client received data " .. data .. " " .. ip .. " " .. port)
+			end
+		end
+	end, nil, server_ip, server_port)
+end
+
+local function find_server(self)
+	update_status("Trying to find a server...")
+	
+	self.p2p = p2p_discovery.create(DISCOVERY_PORT)
+	self.p2p.listen("findme", function(ip, port)
+		gui.set_text(gui.get_node("ping"), "Ping: connected to server...")
+		update_status("Found server " .. ip .. " " .. port)
+		create_udp_client(self, ip, UDP_SERVER_PORT)
+	end)
+end
+
+function init(self)
+	update_status()
+	self.type = nil
+	msg.post(".", "acquire_input_focus")
+end
+
+
+
+function final(self)
+	-- Add finalization code here
+	-- Remove this function if not needed
+end
+
+function update(self, dt)
+	if self.p2p then self.p2p.update() end
+	if self.udp_server then 
+		self.udp_server.update() 
+	end
+	if self.udp then
+		self.udp.update()
+		if self.pings > MAX_PINGS then
+			gui.set_text(gui.get_node("ping"), "Ping: disconnected from server")
+		else
+			self.ping_timer = self.ping_timer + dt
+			if self.ping_timer >= PING_TIMER then
+				self.pings = self.pings + 1
+				self.ping_timer = self.ping_timer - PING_TIMER
+
+				local stream_message = trickle.create()
+				local message = 
+				{
+					name = "ping",
+					data = nil
+				}
+				
+				local stream_data = trickle.create()
+				local data = 
+				{
+					ping = "ping",
+					time = socket.gettime()
+				}
+
+				stream_data:pack(data, sig_ping)
+				message.data = tostring(stream_data)
+				stream_message:pack(message, sig_message)
+				self.udp.send(tostring(stream_message))
+			end
+		end
+	end
+end
+
+function on_message(self, message_id, message, sender)
+	-- Add message-handling code here
+	-- Remove this function if not needed
+end
+
+function on_input(self, action_id, action)
+	if action_id == hash("key_1") and action.released and not self.type then
+		create_udp_server(self)
+		listen_for_clients(self)
+		self.type = "SERVER"
+	end
+	if action_id == hash("key_2") and action.released and not self.type then
+		find_server(self)
+		self.type = "CLIENT"
+	end	
+end
+
+function on_reload(self)
+	-- Add input-handling code here
+	-- Remove this function if not needed
+end
